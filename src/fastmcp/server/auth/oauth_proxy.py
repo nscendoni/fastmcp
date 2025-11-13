@@ -1513,6 +1513,16 @@ class OAuthProxy(OAuthProvider):
                 logger.debug("Upstream token validation failed")
                 return None
 
+            # Store upstream token in validated AccessToken for forwarding
+            # This allows tools/proxies to access the original OAuth token
+            validated._upstream_token = upstream_token_set.access_token
+            
+            # Debug: verify the attribute was set
+            logger.info(
+                f"✅ Set _upstream_token on AccessToken: {upstream_token_set.access_token}... "
+                f"(hasattr check: {hasattr(validated, '_upstream_token')})"
+            )
+
             logger.debug(
                 "Token swap successful for JTI=%s (upstream validated)", jti[:8]
             )

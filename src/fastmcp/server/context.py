@@ -661,6 +661,80 @@ class Context:
         """Get a value from the context state. Returns None if the key is not found."""
         return self._state.get(key)
 
+    @property
+    def upstream_token(self) -> str | None:
+        """
+        Get the upstream OAuth access token for the current session.
+        
+        This property provides access to the original OAuth access token from
+        the upstream identity provider (e.g., Adobe IMS, GitHub, Google) when
+        using OAuthProxy authentication.
+        
+        Use this when you need to forward the user's credentials to backend
+        services or make authenticated API calls on behalf of the user.
+        
+        Returns:
+            The upstream access token string if available, None otherwise.
+            Returns None when:
+            - Not using OAuthProxy authentication
+            - Token has not been validated yet
+            - Session doesn't have token information
+        
+        Example:
+            ```python
+            @server.tool
+            async def call_backend_api(ctx: Context) -> str:
+                # Forward user's token to backend service
+                token = ctx.upstream_token
+                if token:
+                    headers = {"Authorization": f"Bearer {token}"}
+                    # Make authenticated request to backend
+                    ...
+                return "Success"
+            ```
+        """
+        try:
+            # Try to get from HTTP request scope first (set by auth middleware)
+            try:
+                from fastmcp.server.dependencies import get_http_request
+                from fastmcp.utilities.logging import get_logger
+                logger = get_logger(__name__)
+                
+                request = get_http_request()
+                
+                # Check if upstream_token was stored in scope by auth middleware
+                if hasattr(request, "scope") and "upstream_token" in request.scope:
+                    token = request.scope["upstream_token"]
+                    logger.debug(f"🔑 upstream_token: Found in request.scope (IMS token): {token[:50] if token else 'None'}...")
+                    return token
+                
+                # For backend servers: check Authorization header (forwarded by proxy)
+                auth_header = request.headers.get("Authorization", "")
+                if auth_header.startswith("Bearer "):
+                    token = auth_header[7:]  # Remove "Bearer " prefix
+                    logger.debug(f"🔑 upstream_token: Found in Authorization header: {token[:50]}...")
+                    return token
+                
+                logger.debug("🔑 upstream_token: Not found in request scope or Authorization header")
+            except Exception as e:
+                pass  # HTTP request not available
+            
+            # Get the session from request context
+            session = self.session
+            
+            # Check if session has auth context with upstream token
+            # This is set by OAuthProxy during token validation
+            if hasattr(session, "_upstream_token"):
+                return session._upstream_token
+            
+            # Try to get from state (alternative storage location)
+            if "upstream_token" in self._state:
+                return self._state["upstream_token"]
+            
+            return None
+        except Exception:
+            return None
+
     def _queue_tool_list_changed(self) -> None:
         """Queue a tool list changed notification."""
         self._notification_queue.add("notifications/tools/list_changed")
